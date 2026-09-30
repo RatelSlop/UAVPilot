@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { DRONES, REBIRTH_THRESHOLD, WORLD_HALF_SIZE, type DroneSpec } from './config'
-import { canRebirth, damagePayout, loadSave, rebirth, saveGame, unlockedTier, type SaveData } from './progression'
+import { canRebirth, damagePayout, freshSave, loadSave, rebirth, saveGame, unlockedTier, type SaveData } from './progression'
 import { createWorld, setTargetDamageVisual, type Target } from './world'
 import './style.css'
 
@@ -51,7 +51,7 @@ app.innerHTML = `
       <div class="menu-footer"><span>LOW-POLY STRIKE SANDBOX</span><span>DESKTOP · WEBGL 2</span></div>
     </div>
   </div>
-  <div id="controls-modal" class="modal hidden"><div class="modal-card"><button id="close-controls" class="modal-close">×</button><span class="overline">FLIGHT MANUAL</span><h2>Take control.</h2><div class="control-grid"><div><b>MOUSE</b><span>Guide heading and pitch</span></div><div><b>W / S</b><span>Increase / decrease throttle</span></div><div><b>A / D</b><span>Manual bank</span></div><div><b>Q / E</b><span>Manual yaw</span></div><div><b>R / F</b><span>Manual pitch up / down</span></div><div><b>V</b><span>Switch FPV / chase view</span></div><div><b>SPACE</b><span>Drop bomb after first rebirth</span></div><div><b>LEFT CLICK</b><span>Fire gun after second rebirth</span></div><div><b>M</b><span>Mute / unmute sound</span></div><div><b>ESC</b><span>Pause and open hangar</span></div></div><p>Point toward a structure and hit it to detonate your drone. Damaged targets pay points immediately, even if they survive.</p><button id="controls-done" class="primary-button">UNDERSTOOD <span>↗</span></button></div></div>
+  <div id="controls-modal" class="modal hidden"><div class="modal-card"><button id="close-controls" class="modal-close">×</button><span class="overline">FLIGHT MANUAL</span><h2>Take control.</h2><div class="control-grid"><div><b>MOUSE</b><span>Guide heading and pitch</span></div><div><b>W / S</b><span>Increase / decrease throttle</span></div><div><b>A / D</b><span>Manual bank</span></div><div><b>Q / E</b><span>Manual yaw</span></div><div><b>R / F</b><span>Manual pitch up / down</span></div><div><b>V</b><span>Switch FPV / chase view</span></div><div><b>SPACE</b><span>Drop bomb after first rebirth</span></div><div><b>LEFT CLICK</b><span>Fire gun after second rebirth</span></div><div><b>M</b><span>Mute / unmute sound</span></div><div><b>ESC</b><span>Pause and open hangar</span></div></div><p>Point toward a structure and hit it to detonate your drone. Damaged targets pay points immediately, even if they survive.</p><button id="controls-done" class="primary-button">UNDERSTOOD <span>↗</span></button><button id="reset-save" class="reset-button">RESET SAVED PROGRESS</button></div></div>
   <div id="toast-stack"></div>
 `
 
@@ -521,6 +521,15 @@ $('#pause-button').addEventListener('click', pause)
 $('#controls-button').addEventListener('click', () => $('#controls-modal').classList.remove('hidden'))
 $('#close-controls').addEventListener('click', () => $('#controls-modal').classList.add('hidden'))
 $('#controls-done').addEventListener('click', () => $('#controls-modal').classList.add('hidden'))
+$('#reset-save').addEventListener('click', () => {
+  if (!window.confirm('Reset all points, drones, and rebirths saved in this browser?')) return
+  const muted = save.muted
+  save = { ...freshSave(), muted }
+  saveGame(save)
+  renderHangar()
+  $('#controls-modal').classList.add('hidden')
+  toast('PROGRESS RESET')
+})
 $('#rebirth-button').addEventListener('click', () => {
   if (!canRebirth(save)) return
   if (!window.confirm(`Rebirth now? Your current points and drone tiers reset. Permanent weapons and rebirth bonuses stay unlocked.`)) return

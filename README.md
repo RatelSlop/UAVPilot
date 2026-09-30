@@ -25,6 +25,8 @@ The map contains neighborhoods, farms, factories, a power plant, fuel storage, a
 
 Eight drones unlock at 0, 1,000, 2,500, 5,000, 9,000, 15,000, 23,000, and 34,000 points. At 37,000 points you can rebirth from the hangar. Rebirth resets points and drone tiers, but permanently unlocks bombs on the first rebirth and a gun on the second. Later rebirths add a score multiplier, capped at 1.5×. Progress is saved to this browser's local storage.
 
+To start over, open **Flight Controls** in the hangar and choose **Reset Saved Progress**.
+
 | Control | Action |
 | --- | --- |
 | Mouse | Guide the drone's heading and pitch |
