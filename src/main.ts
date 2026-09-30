@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { DRONES, REBIRTH_THRESHOLD, WORLD_HALF_SIZE, type DroneSpec } from './config'
 import { canRebirth, damagePayout, freshSave, loadSave, rebirth, saveGame, unlockedTier, type SaveData } from './progression'
 import { createWorld, setTargetDamageVisual, type Target } from './world'
+import { flightForward, flightOrientation, flightVelocity, stepFlight } from './flight'
 import './style.css'
 
 type Projectile = { mesh: THREE.Mesh; velocity: THREE.Vector3; life: number; damage: number }
@@ -31,7 +32,7 @@ app.innerHTML = `
     <div class="hud-right">
       <div class="eyebrow">MISSION SCORE</div><div id="hud-score" class="score">0</div>
       <div class="score-sub"><span id="hud-next">NEXT AIRFRAME 1,000</span><span id="hud-rebirth">REBIRTH 37,000</span></div>
-      <div id="minimap"><canvas id="map-canvas" width="190" height="190"></canvas><span class="map-title">OPERATION AREA</span><span class="map-n">N</span></div>
+      <div id="minimap"><canvas id="map-canvas" width="190" height="190"></canvas><span class="map-title">OPERATION AREA · 4 × 4 KM</span><span class="map-n">N</span></div>
     </div>
     <div id="crosshair"><span class="crosshair-h"></span><span class="crosshair-v"></span><span class="crosshair-dot"></span></div>
     <div id="steer-cue"></div>
@@ -65,8 +66,10 @@ renderer.shadowMap.type = THREE.PCFShadowMap
 $('#viewport').appendChild(renderer.domElement)
 
 const scene = new THREE.Scene()
-const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2500)
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 6500)
 const targets = createWorld(scene)
+const sunlight = scene.getObjectByName('sun') as THREE.DirectionalLight
+const shadowAnchor = new THREE.Vector3()
 let save: SaveData = loadSave()
 const drone = createDroneModel()
 scene.add(drone)
@@ -99,7 +102,6 @@ const blastGeometry = new THREE.SphereGeometry(1, 8, 6)
 const projectileGeometry = new THREE.SphereGeometry(0.75, 6, 4)
 const raycaster = new THREE.Ray()
 const temp = new THREE.Vector3()
-const aimDirection = new THREE.Vector3()
 const canvas2d = $('#map-canvas') as HTMLCanvasElement
 const ctx = canvas2d.getContext('2d')!
 let lastHudUpdate = 0
@@ -220,18 +222,24 @@ function spawn() {
   yaw = 0
   pitch = -0.06
   bank = 0
+  mouseX = 0
+  mouseY = 0
+  $('#steer-cue').style.left = '50%'
+  $('#steer-cue').style.top = '50%'
   throttle = 1
   hp = spec.health
   alive = true
   respawnTimer = 0
   drone.visible = cameraMode === 'chase'
   drone.scale.setScalar(spec.size)
+  drone.position.copy(position)
+  drone.quaternion.copy(flightOrientation({ yaw, pitch, bank }))
   const body = drone.userData.body as THREE.Mesh
   ;(body.material as THREE.MeshStandardMaterial).color.setHex(spec.color)
   $('#respawn').classList.add('hidden')
 }
 
-function forward() { return new THREE.Vector3(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), -Math.cos(yaw) * Math.cos(pitch)).normalize() }
+function forward() { return flightForward(yaw, pitch) }
 
 function destroyDrone(reason: string, impact = false) {
   if (!alive) return
@@ -332,35 +340,60 @@ function updateFlight(dt: number) {
   const spec = currentDrone()
   if (keys.has('KeyW')) throttle = clamp(throttle + dt * 0.35, 0.25, 1)
   if (keys.has('KeyS')) throttle = clamp(throttle - dt * 0.35, 0.25, 1)
-  const manualPitch = (keys.has('KeyR') ? 1 : 0) - (keys.has('KeyF') ? 1 : 0)
-  const manualYaw = (keys.has('KeyE') ? 1 : 0) - (keys.has('KeyQ') ? 1 : 0)
-  const manualBank = (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0)
-  const targetPitch = clamp(-mouseY * 0.57 + manualPitch * 0.55, -0.7, 0.7)
-  pitch = lerp(pitch, targetPitch, Math.min(1, dt * (2.1 + spec.turn)))
-  const turning = mouseX * 0.92 + manualYaw * 0.95 + manualBank * 0.42
-  yaw += turning * spec.turn * dt
-  bank = lerp(bank, clamp(-turning * 0.4 - manualBank * 0.35, -0.75, 0.75), Math.min(1, dt * 3.5))
-  const desiredVelocity = forward().multiplyScalar(spec.speed * throttle)
-  velocity.lerp(desiredVelocity, Math.min(1, dt * 1.65))
+  let manualPitch = (keys.has('KeyR') ? 1 : 0) - (keys.has('KeyF') ? 1 : 0)
+  let manualYaw = (keys.has('KeyE') ? 1 : 0) - (keys.has('KeyQ') ? 1 : 0)
+  let manualBank = (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0)
+  let aimX = mouseX
+  let aimY = mouseY
+  const outward = position.x * velocity.x + position.z * velocity.z > 0
+  if (outward && Math.max(Math.abs(position.x), Math.abs(position.z)) > WORLD_HALF_SIZE - 250) {
+    const homeHeading = Math.atan2(-position.x, position.z)
+    const error = Math.atan2(Math.sin(homeHeading - yaw), Math.cos(homeHeading - yaw))
+    aimX = clamp(error * 1.8, -1.25, 1.25)
+    manualYaw = manualBank = 0
+    setAlert('RETURN TO OPERATION AREA')
+  }
+  if (position.y > 450) { aimY = Math.max(aimY, 0.55); manualPitch = 0; setAlert('ALTITUDE LIMIT · DESCEND') }
+  const next = stepFlight({ yaw, pitch, bank, speed: velocity.length() }, {
+    aimX, aimY, pitch: manualPitch, yaw: manualYaw, bank: manualBank, throttle,
+  }, spec, dt)
+  yaw = next.yaw
+  pitch = next.pitch
+  bank = next.bank
+  // Smooth acceleration, but never delay the direction independently of the airframe.
+  velocity.copy(flightVelocity(next))
+  const previousPosition = position.clone()
   position.addScaledVector(velocity, dt)
   drone.position.copy(position)
-  drone.rotation.set(pitch, yaw, bank, 'YXZ')
+  drone.quaternion.copy(flightOrientation(next))
 
-  if (position.y <= 2) { position.y = 2; blast(position, spec.blast, spec.damage); destroyDrone('GROUND IMPACT', true); return }
-  if (position.y > 250) { pitch = Math.min(pitch, -0.25); setAlert('ALTITUDE LIMIT · DESCEND') }
-  if (Math.abs(position.x) > WORLD_HALF_SIZE - 10 || Math.abs(position.z) > WORLD_HALF_SIZE - 10) {
-    setAlert('RETURN TO OPERATION AREA')
-    position.x = clamp(position.x, -WORLD_HALF_SIZE + 10, WORLD_HALF_SIZE - 10)
-    position.z = clamp(position.z, -WORLD_HALF_SIZE + 10, WORLD_HALF_SIZE - 10)
-    yaw += Math.PI * dt * 0.65
-  }
-  const sphere = new THREE.Sphere(position, Math.max(2.1, spec.size * 2.2))
+  const radius = Math.max(2.1, spec.size * 2.2)
+  const segmentLength = position.distanceTo(previousPosition)
+  const groundDistance = position.y <= 2 ? segmentLength * clamp((previousPosition.y - 2) / (previousPosition.y - position.y), 0, 1) : Infinity
+  const collisionRay = new THREE.Ray(previousPosition, forward())
+  let hitTarget: Target | null = null
+  let hitDistance = Math.min(segmentLength + 0.001, groundDistance)
   for (const target of targets) {
-    if (target.health > 0 && target.box.intersectsSphere(sphere)) {
-      blast(position, spec.blast, spec.damage)
-      destroyDrone(`IMPACT · ${target.name.toUpperCase()}`, true)
-      return
+    if (target.health <= 0) continue
+    const expanded = target.box.clone().expandByScalar(radius)
+    const hit = expanded.containsPoint(previousPosition) ? previousPosition : collisionRay.intersectBox(expanded, new THREE.Vector3())
+    if (hit && previousPosition.distanceTo(hit) <= hitDistance) {
+      hitDistance = previousPosition.distanceTo(hit)
+      hitTarget = target
     }
+  }
+  if (hitTarget) {
+    position.copy(previousPosition).addScaledVector(forward(), hitDistance)
+    blast(position, spec.blast, spec.damage)
+    destroyDrone(`IMPACT · ${hitTarget.name.toUpperCase()}`, true)
+    return
+  }
+  if (position.y <= 2) {
+    position.copy(previousPosition).addScaledVector(forward(), groundDistance)
+    position.y = 2
+    blast(position, spec.blast, spec.damage)
+    destroyDrone('GROUND IMPACT', true)
+    return
   }
   if (firing) fireGun()
 }
@@ -446,8 +479,9 @@ function updateCamera(dt: number) {
   const desired = cameraMode === 'fpv'
     ? position.clone().addScaledVector(direction, 2.6).add(new THREE.Vector3(0, 0.42, 0))
     : position.clone().addScaledVector(direction, -18).add(new THREE.Vector3(0, 6, 0))
-  camera.position.lerp(desired, Math.min(1, dt * (cameraMode === 'fpv' ? 12 : 5)))
+  camera.position.copy(desired)
   camera.up.set(0, 1, 0)
+  if (cameraMode === 'fpv') camera.up.applyQuaternion(drone.quaternion)
   camera.lookAt(position.clone().addScaledVector(direction, 45))
   camera.fov = lerp(camera.fov, 72 + throttle * 9, Math.min(1, dt * 2))
   camera.updateProjectionMatrix()
@@ -461,16 +495,17 @@ function drawMap() {
   ctx.fillRect(0, 0, w, h)
   ctx.strokeStyle = 'rgba(188,211,190,.12)'
   for (let i = 1; i < 5; i++) { ctx.beginPath(); ctx.moveTo(i * w / 5, 0); ctx.lineTo(i * w / 5, h); ctx.moveTo(0, i * h / 5); ctx.lineTo(w, i * h / 5); ctx.stroke() }
-  ctx.fillStyle = '#426868'; ctx.fillRect(w * (74 / 1240 + 0.5) - 2, 0, 4, h)
+  const mapSize = WORLD_HALF_SIZE * 2
+  ctx.fillStyle = '#426868'; ctx.fillRect(w * (74 / mapSize + 0.5) - 1, 0, 2, h)
   for (const target of targets) {
     if (target.health <= 0) continue
     ctx.fillStyle = target.kind === 'turret' ? '#ed7758' : target.points >= 700 ? '#d6ab71' : '#7faaa0'
-    const x = (target.position.x / 1240 + 0.5) * w
-    const y = (target.position.z / 1240 + 0.5) * h
+    const x = (target.position.x / mapSize + 0.5) * w
+    const y = (target.position.z / mapSize + 0.5) * h
     ctx.fillRect(x - 1.5, y - 1.5, 3, 3)
   }
-  const x = (position.x / 1240 + 0.5) * w
-  const y = (position.z / 1240 + 0.5) * h
+  const x = (position.x / mapSize + 0.5) * w
+  const y = (position.z / mapSize + 0.5) * h
   ctx.save(); ctx.translate(x, y); ctx.rotate(yaw); ctx.fillStyle = '#fff2c4'; ctx.beginPath(); ctx.moveTo(0, -7); ctx.lineTo(5, 5); ctx.lineTo(0, 2); ctx.lineTo(-5, 5); ctx.closePath(); ctx.fill(); ctx.restore()
 }
 
@@ -491,7 +526,7 @@ function updateHud() {
   $('#weapon-hint').innerHTML = `<b>V</b> ${cameraMode.toUpperCase()}${save.rebirths >= 1 ? ` <b>SPACE</b> BOMB ${bombCooldown > 0 ? Math.ceil(bombCooldown) + 'S' : 'READY'}` : ''}${save.rebirths >= 2 ? ' <b>CLICK</b> GUN' : ''} <b>M</b> ${save.muted ? 'SOUND OFF' : 'SOUND ON'}`
   raycaster.set(position, forward())
   let nearest: Target | undefined
-  let distance = 290
+  let distance = 1000
   for (const target of targets) {
     if (target.health <= 0) continue
     const hit = raycaster.intersectBox(target.box, new THREE.Vector3())
@@ -521,6 +556,13 @@ function frame(now: number) {
     camera.position.set(Math.sin(t) * 160, 145, 360 + Math.cos(t) * 80)
     camera.lookAt(0, 0, -100)
     drone.visible = false
+  }
+  const focusX = active ? position.x : 0
+  const focusZ = active ? position.z : 0
+  if ((focusX - shadowAnchor.x) ** 2 + (focusZ - shadowAnchor.z) ** 2 > 10000) {
+    shadowAnchor.set(focusX, 0, focusZ)
+    sunlight.target.position.copy(shadowAnchor)
+    sunlight.position.set(focusX - 260, 420, focusZ + 110)
   }
   renderer.render(scene, camera)
 }

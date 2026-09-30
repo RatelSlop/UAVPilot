@@ -25,7 +25,7 @@ export const DRONES: DroneSpec[] = [
 
 export const REBIRTH_THRESHOLD = 37000
 export const SAVE_KEY = 'uavpilot-save-v1'
-export const WORLD_HALF_SIZE = 620
+export const WORLD_HALF_SIZE = 2000
 
 export type TargetKind = 'house' | 'farm' | 'factory' | 'power' | 'fuel' | 'freight' | 'rail' | 'comms' | 'airfield' | 'base' | 'turret'
 

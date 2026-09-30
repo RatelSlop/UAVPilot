@@ -21,7 +21,7 @@ npm run preview
 
 ## Gameplay
 
-The map contains neighborhoods, farms, factories, a power plant, fuel storage, a freight depot, rail bridges, communications towers, an airfield, and a military base. Turrets defend limited areas near critical sites. Structures take visible damage, award points for the health removed, and regenerate after a cooldown.
+The 4 km × 4 km map contains a central town, five outer settlements, farms, industrial parks, power facilities, fuel depots, freight yards, rail bridges, communications towers, two airfields, and three military sites. More than 195 targets are spread across the region. Turrets defend limited areas near critical sites. Structures take visible damage, award points for the health removed, and regenerate after a cooldown.
 
 Eight drones unlock at 0, 1,000, 2,500, 5,000, 9,000, 15,000, 23,000, and 34,000 points. At 37,000 points you can rebirth from the hangar. Rebirth resets points and drone tiers, but permanently unlocks bombs on the first rebirth and a gun on the second. Later rebirths add a score multiplier, capped at 1.5×. Progress is saved to this browser's local storage.
 
@@ -40,7 +40,7 @@ To start over, open **Flight Controls** in the hangar and choose **Reset Saved P
 | M | Mute / unmute |
 | Esc | Return to hangar |
 
-The fixed center reticle shows the drone's current line of travel and gun aim. The dashed circle shows the mouse steering cue. A direct impact detonates the drone and a replacement launches shortly after.
+The fixed center reticle shows the drone's current line of travel and gun aim. The dashed circle shows the mouse steering cue. Manual bank, yaw, and pitch override mouse input on their respective axes. The drone banks into its actual turn, and its nose stays aligned with movement. A direct impact detonates the drone and a replacement launches shortly after.
 
 ## Deployment when ready
 
@@ -56,6 +56,7 @@ The regular CI workflow runs tests and a build on each push and pull request wit
 - `src/config.ts`: drone tiers, point values, respawn timing, and world size.
 - `src/world.ts`: procedural low-poly map, target geometry, and damage appearance.
 - `src/progression.ts`: scoring, saves, unlocks, and rebirth logic.
+- `src/flight.ts`: coordinated flight response and shared airframe/movement orientation.
 - `src/main.ts`: flight, cameras, combat, turret AI, HUD, and input.
 - `src/style.css`: menu and HUD styling.
 
