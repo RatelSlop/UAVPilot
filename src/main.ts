@@ -52,6 +52,7 @@ app.innerHTML = `
     </div>
   </div>
   <div id="controls-modal" class="modal hidden"><div class="modal-card"><button id="close-controls" class="modal-close">×</button><span class="overline">FLIGHT MANUAL</span><h2>Take control.</h2><div class="control-grid"><div><b>MOUSE</b><span>Guide heading and pitch</span></div><div><b>W / S</b><span>Increase / decrease throttle</span></div><div><b>A / D</b><span>Manual bank</span></div><div><b>Q / E</b><span>Manual yaw</span></div><div><b>R / F</b><span>Manual pitch up / down</span></div><div><b>V</b><span>Switch FPV / chase view</span></div><div><b>SPACE</b><span>Drop bomb after first rebirth</span></div><div><b>LEFT CLICK</b><span>Fire gun after second rebirth</span></div><div><b>M</b><span>Mute / unmute sound</span></div><div><b>ESC</b><span>Pause and open hangar</span></div></div><p>Point toward a structure and hit it to detonate your drone. Damaged targets pay points immediately, even if they survive.</p><button id="controls-done" class="primary-button">UNDERSTOOD <span>↗</span></button><button id="reset-save" class="reset-button">RESET SAVED PROGRESS</button></div></div>
+  <div id="confirm-modal" class="modal hidden"><div class="modal-card confirm-card"><span class="overline">CONFIRM ACTION</span><h2 id="confirm-title">Are you sure?</h2><p id="confirm-message"></p><div class="confirm-actions"><button id="confirm-cancel" class="secondary-button">CANCEL</button><button id="confirm-accept" class="primary-button">CONFIRM <span>↗</span></button></div></div></div>
   <div id="toast-stack"></div>
 `
 
@@ -102,6 +103,14 @@ const aimDirection = new THREE.Vector3()
 const canvas2d = $('#map-canvas') as HTMLCanvasElement
 const ctx = canvas2d.getContext('2d')!
 let lastHudUpdate = 0
+let confirmHandler: (() => void) | null = null
+
+function askConfirm(title: string, message: string, action: () => void) {
+  $('#confirm-title').textContent = title
+  $('#confirm-message').textContent = message
+  confirmHandler = action
+  $('#confirm-modal').classList.remove('hidden')
+}
 
 function createDroneModel() {
   const group = new THREE.Group()
@@ -522,28 +531,41 @@ $('#controls-button').addEventListener('click', () => $('#controls-modal').class
 $('#close-controls').addEventListener('click', () => $('#controls-modal').classList.add('hidden'))
 $('#controls-done').addEventListener('click', () => $('#controls-modal').classList.add('hidden'))
 $('#reset-save').addEventListener('click', () => {
-  if (!window.confirm('Reset all points, drones, and rebirths saved in this browser?')) return
-  const muted = save.muted
-  save = { ...freshSave(), muted }
-  saveGame(save)
-  renderHangar()
-  $('#controls-modal').classList.add('hidden')
-  toast('PROGRESS RESET')
+  askConfirm('Reset progress?', 'This clears all points, airframes, and rebirths saved in this browser.', () => {
+    const muted = save.muted
+    save = { ...freshSave(), muted }
+    saveGame(save)
+    renderHangar()
+    $('#controls-modal').classList.add('hidden')
+    toast('PROGRESS RESET')
+  })
+})
+$('#confirm-cancel').addEventListener('click', () => { confirmHandler = null; $('#confirm-modal').classList.add('hidden') })
+$('#confirm-accept').addEventListener('click', () => {
+  const action = confirmHandler
+  confirmHandler = null
+  $('#confirm-modal').classList.add('hidden')
+  action?.()
 })
 $('#rebirth-button').addEventListener('click', () => {
   if (!canRebirth(save)) return
-  if (!window.confirm(`Rebirth now? Your current points and drone tiers reset. Permanent weapons and rebirth bonuses stay unlocked.`)) return
-  save = rebirth(save)
-  saveGame(save)
-  renderHangar()
-  toast(save.rebirths === 1 ? 'BOMBS UNLOCKED' : save.rebirths === 2 ? 'GUN UNLOCKED' : 'SCORE BONUS INCREASED', 'gold')
-  sound(590, 0.5, 'sine', 0.15)
+  askConfirm('Rebirth now?', 'Current points and drone tiers reset. Permanent weapons and rebirth bonuses stay unlocked.', () => {
+    save = rebirth(save)
+    saveGame(save)
+    renderHangar()
+    toast(save.rebirths === 1 ? 'BOMBS UNLOCKED' : save.rebirths === 2 ? 'GUN UNLOCKED' : 'SCORE BONUS INCREASED', 'gold')
+    sound(590, 0.5, 'sine', 0.15)
+  })
 })
 window.addEventListener('keydown', event => {
   if (['Space', 'ArrowUp', 'ArrowDown'].includes(event.code)) event.preventDefault()
   if (event.repeat) return
   keys.add(event.code)
-  if (event.code === 'Escape') { if (!$('#controls-modal').classList.contains('hidden')) $('#controls-modal').classList.add('hidden'); else if (active) pause() }
+  if (event.code === 'Escape') {
+    if (!$('#confirm-modal').classList.contains('hidden')) { confirmHandler = null; $('#confirm-modal').classList.add('hidden') }
+    else if (!$('#controls-modal').classList.contains('hidden')) $('#controls-modal').classList.add('hidden')
+    else if (active) pause()
+  }
   if (!active) return
   if (event.code === 'KeyV') { cameraMode = cameraMode === 'fpv' ? 'chase' : 'fpv'; setAlert(`${cameraMode.toUpperCase()} CAMERA`) }
   if (event.code === 'KeyM') { save.muted = !save.muted; saveGame(save); setAlert(save.muted ? 'SOUND OFF' : 'SOUND ON') }
